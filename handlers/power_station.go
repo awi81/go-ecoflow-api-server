@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/tess1o/go-ecoflow"
 	"go-ecoflow-api-server/constants"
+	"go-ecoflow-api-server/middleware"
 	"net/http"
 )
 
@@ -19,12 +21,17 @@ func NewPowerStationHandler(baseHandler *BaseHandler) *PowerStationHandler {
 }
 
 func (h *PowerStationHandler) RegisterRoutes(router chi.Router) {
-	router.Put("/api/power_station/{serial_number}/out/ac", h.PowerStationEnableAc())
-	router.Put("/api/power_station/{serial_number}/out/dc", h.PowerStationEnableDc())
-	router.Put("/api/power_station/{serial_number}/out/car", h.PowerStationSetEnableCarCharging())
-	router.Put("/api/power_station/{serial_number}/input/speed", h.PowerStationSetChargingSpeed())
-	router.Put("/api/power_station/{serial_number}/input/car", h.PowerStationSetCarInput())
-	router.Put("/api/power_station/{serial_number}/standby", h.PowerStationSetStandBy())
+	validator := middleware.DefaultSerialNumberValidator()
+
+	// Apply serial number validation to all power_station routes
+	router.With(middleware.SerialNumberValidationMiddleware(validator, "serial_number")).Route("/api/power_station/{serial_number}", func(r chi.Router) {
+		r.Put("/out/ac", h.PowerStationEnableAc())
+		r.Put("/out/dc", h.PowerStationEnableDc())
+		r.Put("/out/car", h.PowerStationSetEnableCarCharging())
+		r.Put("/input/speed", h.PowerStationSetChargingSpeed())
+		r.Put("/input/car", h.PowerStationSetCarInput())
+		r.Put("/standby", h.PowerStationSetStandBy())
+	})
 }
 
 type ChangeStateRequest struct {
@@ -202,8 +209,8 @@ func (h *PowerStationHandler) PowerStationEnableAc() func(http.ResponseWriter, *
 			return
 		}
 
-		if requestBody.OutVoltage == 0 {
-			h.RespondWithError(w, http.StatusBadRequest, constants.ErrInvalidParameters, "Invalid request. out_voltage must not be 0", map[string]string{
+		if requestBody.OutVoltage == 0 || requestBody.OutVoltage < 100 || requestBody.OutVoltage > 240 {
+			h.RespondWithError(w, http.StatusBadRequest, constants.ErrInvalidParameters, "Invalid request. out_voltage must be between 100 and 240", map[string]string{
 				"serial_number": sn,
 				"out_voltage":   fmt.Sprintf("%d", requestBody.OutVoltage),
 			})
