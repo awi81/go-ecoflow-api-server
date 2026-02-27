@@ -6,7 +6,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"go-ecoflow-api-server/constants"
-	"go-ecoflow-api-server/middleware"
 	"net/http"
 )
 
@@ -19,12 +18,12 @@ func NewDeviceHandler(baseHandler *BaseHandler) *DeviceHandler {
 }
 
 func (h *DeviceHandler) RegisterRoutes(router chi.Router) {
-	validator := middleware.DefaultSerialNumberValidator()
+	validator := DefaultSerialNumberValidator()
 
 	router.Get("/api/devices", h.GetDevicesList())
 
 	// Apply serial number validation to routes with {serial_number} parameter
-	router.With(middleware.SerialNumberValidationMiddleware(validator, "serial_number")).Route("/api/devices/{serial_number}", func(r chi.Router) {
+	router.With(SerialNumberValidationMiddleware(validator, "serial_number")).Route("/api/devices/{serial_number}", func(r chi.Router) {
 		r.Get("/parameters", h.GetDeviceParametersAll())
 		r.Post("/parameters/query", h.GetDeviceParametersQuery())
 	})

@@ -32,6 +32,41 @@ headers.These tokens are not logged and not recorded on the server.
 
 The access token is sent in `Authorization: Bearer XXX` header, the secret token as `X-Secret-Token` header.
 
+## Security Features
+
+- **HTTPS/TLS Support**: Server can be run with TLS certificates for encrypted communication
+- **CORS Support**: Configurable Cross-Origin Resource Sharing (CORS) policy
+- **Input Validation**: Serial number and parameter validation
+- **Rate Limiting**: 60 requests per minute per IP
+- **Secure Error Handling**: Internal errors are logged but not exposed to clients
+
+### Command Line Options
+
+The server supports the following command line flags:
+
+| Flag | Environment Variable | Description |
+|------|---------------------|-------------|
+| `-tls-cert` | `TLS_CERT_FILE` | Path to TLS certificate file |
+| `-tls-key` | `TLS_KEY_FILE` | Path to TLS key file |
+| `-allowed-origins` | `ALLOWED_ORIGINS` | Comma-separated list of allowed CORS origins (use `*` for all) |
+| `-port` | `PORT` | Server port (default: 8080) |
+
+### Examples
+
+```shell
+# Run with HTTPS
+./go-ecoflow-api-server -tls-cert /path/to/cert.pem -tls-key /path/to/key.pem
+
+# Run with HTTPS and CORS
+./go-ecoflow-api-server -tls-cert /path/to/cert.pem -tls-key /path/to/key.pem -allowed-origins "https://example.com"
+
+# Run with CORS only (HTTP)
+./go-ecoflow-api-server -allowed-origins "https://example.com,https://app.example.com"
+
+# Allow all origins (not recommended for production)
+./go-ecoflow-api-server -allowed-origins "*"
+```
+
 ## Caution!
 
 The API is not stable and can be changed in the future until v1.0.0 is released.
@@ -665,7 +700,7 @@ curl -XPUT http://localhost:8080/api/power_station/R601ZCB5HEAXXXXX/input/car \
 **Request**
 
 ```shell
-curl -XPOST http://localhost:8080/api/power_station/R601ZCB5HEAXXXXX/standby \
+curl -XPUT http://localhost:8080/api/power_station/R601ZCB5HEAXXXXX/standby \
  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
  -H "X-Secret-Token: YOUR_SECRET_TOKEN" \
  -d '{"type":"lcd", "stand_by":60}'

@@ -8,7 +8,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/tess1o/go-ecoflow"
 	"go-ecoflow-api-server/constants"
-	"go-ecoflow-api-server/middleware"
 	"net/http"
 )
 
@@ -21,10 +20,10 @@ func NewPowerStationHandler(baseHandler *BaseHandler) *PowerStationHandler {
 }
 
 func (h *PowerStationHandler) RegisterRoutes(router chi.Router) {
-	validator := middleware.DefaultSerialNumberValidator()
+	validator := DefaultSerialNumberValidator()
 
 	// Apply serial number validation to all power_station routes
-	router.With(middleware.SerialNumberValidationMiddleware(validator, "serial_number")).Route("/api/power_station/{serial_number}", func(r chi.Router) {
+	router.With(SerialNumberValidationMiddleware(validator, "serial_number")).Route("/api/power_station/{serial_number}", func(r chi.Router) {
 		r.Put("/out/ac", h.PowerStationEnableAc())
 		r.Put("/out/dc", h.PowerStationEnableDc())
 		r.Put("/out/car", h.PowerStationSetEnableCarCharging())
