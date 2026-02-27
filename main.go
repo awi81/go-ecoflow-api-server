@@ -1,6 +1,10 @@
 package main
 
 import (
+	"flag"
+	"os"
+	"strings"
+
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/httplog/v2"
@@ -34,6 +38,13 @@ import (
 // @security Authorization
 // @security X-Secret-Token
 func main() {
+	// Parse command line flags for HTTPS configuration
+	tlsCertFile := flag.String("tls-cert", os.Getenv("TLS_CERT_FILE"), "TLS certificate file path")
+	tlsKeyFile := flag.String("tls-key", os.Getenv("TLS_KEY_FILE"), "TLS key file path")
+	allowedOrigins := flag.String("allowed-origins", os.Getenv("ALLOWED_ORIGINS"), "Comma-separated list of allowed CORS origins (empty for all)")
+	port := flag.String("port", os.Getenv("PORT"), "Server port (default: 8080)")
+	flag.Parse()
+
 	log := logger.GetLogger(slog.LevelDebug)
 
 	router := chi.NewRouter()
@@ -41,29 +52,52 @@ func main() {
 	deviceHandler := handlers.NewDeviceHandler(baseHandler)
 	powerStationHandler := handlers.NewPowerStationHandler(baseHandler)
 
+	// Configure CORS
+	corsConfig := middleware.DefaultCORSConfig()
+	if *allowedOrigins != "" {
+		corsConfig.AllowedOrigins = strings.Split(*allowedOrigins, ",")
+	}
+
 	// create api routes
 	router.Group(func(apiRouter chi.Router) {
-		setMiddleware(apiRouter, log, baseHandler)
+		setMiddleware(apiRouter, log, baseHandler, corsConfig)
 		deviceHandler.RegisterRoutes(apiRouter)
 		powerStationHandler.RegisterRoutes(apiRouter)
 	})
 
 	router.Get("/swagger/*", httpSwagger.WrapHandler)
 
-	slog.Info("Starting Ecoflow API Server on :8080... Swagger is available at http://localhost:8080/swagger/index.html")
+	// Determine server port
+	serverPort := ":8080"
+	if *port != "" {
+		serverPort = ":" + *port
+	}
 
-	err := http.ListenAndServe(":8080", router)
-	if err != nil {
-		log.Error("Failed to start server", "error", err)
+	// Start server with or without TLS
+	if *tlsCertFile != "" && *tlsKeyFile != "" {
+		slog.Info("Starting Ecoflow API Server with HTTPS on "+serverPort+"...", "cert", *tlsCertFile, "key", *tlsKeyFile)
+		err := http.ListenAndServeTLS(serverPort, *tlsCertFile, *tlsKeyFile, router)
+		if err != nil {
+			log.Error("Failed to start HTTPS server", "error", err)
+		}
+	} else {
+		slog.Warn("Starting Ecoflow API Server on "+serverPort+" without HTTPS - use -tls-cert and -tls-key for HTTPS")
+		err := http.ListenAndServe(serverPort, router)
+		if err != nil {
+			log.Error("Failed to start server", "error", err)
+		}
 	}
 }
 
-func setMiddleware(router chi.Router, log *httplog.Logger, baseHandler *handlers.BaseHandler) {
+func setMiddleware(router chi.Router, log *httplog.Logger, baseHandler *handlers.BaseHandler, corsConfig middleware.CORSConfig) {
 	router.Use(chimiddleware.RequestID)                         //add request id to each request
 	router.Use(chimiddleware.RealIP)                            //get real ip address for headers
 	router.Use(httplog.RequestLogger(log))                      //log all requests without sensitive headers
 	router.Use(chimiddleware.Recoverer)                         //recover in case of panic
 	router.Use(chimiddleware.Timeout(constants.RequestTimeout)) //max request duration
+
+	// CORS middleware - must be before auth to handle preflight requests
+	router.Use(middleware.CORS(corsConfig))
 
 	authheaders := []string{constants.HeaderAuthorization, constants.HeaderXSecretToken}
 	router.Use(middleware.NewAuthHeadersMiddleware(baseHandler, authheaders).CheckAuthHeaders)                                   // check mandatory auth headers
