@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+
 	"github.com/go-chi/httplog/v2"
 	"github.com/tess1o/go-ecoflow"
 	"go-ecoflow-api-server/constants"
@@ -65,12 +66,43 @@ func (b *BaseHandler) RespondWithSuccess(w http.ResponseWriter, data interface{}
 }
 
 // RespondWithError sends a standardized error response as JSON, including the HTTP status code, error code, message, and details.
-func (b *BaseHandler) RespondWithError(w http.ResponseWriter, statusCode int, code, message string, details interface{}) {
+// The original error message is logged internally but not exposed to the client for security reasons.
+func (b *BaseHandler) RespondWithError(w http.ResponseWriter, statusCode int, code, originalError string, details interface{}) {
+	// Log the original error internally for debugging purposes
+	if originalError != "" && statusCode >= 500 {
+		b.Logger.Error("Internal error details", "original_error", originalError)
+	}
+
+	// Use a generic error message for client-facing responses to avoid leaking internal information
+	var clientMessage string
+	switch code {
+	case constants.ErrGetDevicesList,
+		constants.ErrGetAllDeviceParameters,
+		constants.ErrGetDeviceParameters,
+		constants.ErrEnableCarOut,
+		constants.ErrEnableDcOut,
+		constants.ErrEnableAcOut,
+		constants.ErrPowerStationSetChargingSpeed,
+		constants.ErrPowerStationSetCarInput,
+		constants.ErrPowerStationSetStandBy:
+		clientMessage = "An internal error occurred while processing your request"
+	case constants.ErrInvalidJsonBody:
+		clientMessage = "Invalid JSON body"
+	case constants.ErrInvalidParameters:
+		clientMessage = "Invalid request parameters"
+	case constants.ErrMandatoryHeaderMissing:
+		clientMessage = "Missing required header"
+	case constants.ErrInvalidAuthHeader:
+		clientMessage = "Invalid authentication"
+	default:
+		clientMessage = "An error occurred"
+	}
+
 	response := ErrorResponse{
 		Success: false,
 		Error: ErrorField{
 			Code:    code,
-			Message: message,
+			Message: clientMessage,
 			Details: details,
 		},
 	}
