@@ -180,11 +180,9 @@ func (h *DeviceHandler) GetDeviceSOC() func(w http.ResponseWriter, r *http.Reque
 			{"bms", "soc"},
 		}
 
-		var lastErr error
 		for _, params := range paramsToTry {
 			ecoflowResponse, err := client.GetDeviceParameters(context.Background(), sn, params)
 			if err != nil {
-				lastErr = err
 				continue
 			}
 
