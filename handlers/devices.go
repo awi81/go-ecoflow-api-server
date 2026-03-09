@@ -31,7 +31,7 @@ func (h *DeviceHandler) RegisterRoutes(router chi.Router) {
 
 // GetDevicesList handles retrieving a list of devices
 // @Summary Get a list of devices
-// @Description Returns a list of all devices associated with the user
+// @Description Returns a list of all devices associated with the user, including battery status
 // @Tags Devices
 // @Produce json
 // @Success 200 {object} SuccessResponse "List of devices retrieved successfully"
@@ -49,7 +49,58 @@ func (h *DeviceHandler) GetDevicesList() func(w http.ResponseWriter, r *http.Req
 			h.RespondWithError(w, http.StatusInternalServerError, constants.ErrGetDevicesList, err.Error(), nil)
 			return
 		}
-		h.RespondWithSuccess(w, ecoflowResponse)
+
+		// Convert to JSON and back to extract nested data
+		jsonBytes, _ := json.Marshal(ecoflowResponse)
+		var ecoflowData map[string]interface{}
+		json.Unmarshal(jsonBytes, &ecoflowData)
+
+		// Extract the actual device list from the nested response
+		// Ecoflow returns: {code: "0", message: "Success", data: [...]}
+		dataList, exists := ecoflowData["data"]
+		if !exists {
+			h.RespondWithSuccess(w, ecoflowResponse)
+			return
+		}
+
+		// Convert to slice of devices
+		devicesJSON, _ := json.Marshal(dataList)
+		var devices []map[string]interface{}
+		if err := json.Unmarshal(devicesJSON, &devices); err != nil {
+			h.RespondWithSuccess(w, dataList)
+			return
+		}
+
+		// Enrich each device with battery info (sysInfo)
+		for i := range devices {
+			sn, ok := devices[i]["sn"].(string)
+			if !ok || sn == "" {
+				continue
+			}
+
+			// Get device all parameters
+			params, err := client.GetDeviceAllParameters(context.Background(), sn)
+			if err != nil {
+				continue
+			}
+
+			// Extract sysInfo from parameters
+			paramsJSON, _ := json.Marshal(params)
+			var paramsData map[string]interface{}
+			json.Unmarshal(paramsJSON, &paramsData)
+
+			// Look for sysData or similar structure containing SOC
+			if sysData, ok := paramsData["sysData"].(map[string]interface{}); ok {
+				devices[i]["sysInfo"] = sysData
+			} else if data, ok := paramsData["data"].(map[string]interface{}); ok {
+				// Try nested data structure
+				if sysData, ok := data["sysData"].(map[string]interface{}); ok {
+					devices[i]["sysInfo"] = sysData
+				}
+			}
+		}
+
+		h.RespondWithSuccess(w, devices)
 	}
 }
 

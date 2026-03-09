@@ -6,6 +6,8 @@ const (
 	ErrInvalidJsonBody        = "0003"
 	ErrInvalidParameters      = "0004"
 	ErrRateLimitExceeded      = "0005"
+	ErrUnauthorized           = "0006"
+	ErrInternalServer        = "0007"
 
 	ErrGetDevicesList         = "0100"
 	ErrGetAllDeviceParameters = "0101"

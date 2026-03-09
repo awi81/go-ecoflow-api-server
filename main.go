@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"strings"
 
@@ -47,10 +48,18 @@ func main() {
 
 	log := logger.GetLogger(slog.LevelDebug)
 
+	// Tibber API-Key ist jetzt optional
+	// Kann als Umgebungsvariable oder pro Request als Header gesetzt werden
+	tibberAPIKey := os.Getenv("TIBBER_API_KEY")
+	if tibberAPIKey != "" {
+		slog.Info("Tibber API key configured")
+	}
+
 	router := chi.NewRouter()
 	baseHandler := handlers.NewBaseHandler(log, service.GetEcoflowClient)
 	deviceHandler := handlers.NewDeviceHandler(baseHandler)
 	powerStationHandler := handlers.NewPowerStationHandler(baseHandler)
+	pulseHandler := handlers.NewPulseHandler(baseHandler)
 
 	// Configure CORS
 	corsConfig := middleware.DefaultCORSConfig()
@@ -58,11 +67,51 @@ func main() {
 		corsConfig.AllowedOrigins = strings.Split(*allowedOrigins, ",")
 	}
 
-	// create api routes
+	// create api routes - with auth
 	router.Group(func(apiRouter chi.Router) {
 		setMiddleware(apiRouter, log, baseHandler, corsConfig)
 		deviceHandler.RegisterRoutes(apiRouter)
 		powerStationHandler.RegisterRoutes(apiRouter)
+	})
+
+	// Tibber routes - without EcoFlow auth (just needs Tibber API key)
+	router.Group(func(apiRouter chi.Router) {
+		// Only CORS and basic middleware, no auth
+		apiRouter.Use(chimiddleware.RequestID)
+		apiRouter.Use(chimiddleware.RealIP)
+		apiRouter.Use(httplog.RequestLogger(log))
+		apiRouter.Use(chimiddleware.Recoverer)
+		apiRouter.Use(middleware.CORS(corsConfig))
+
+		// Register Tibber routes (API-Key wird pro Request geprüft)
+		tibberHandler := handlers.NewTibberHandler(baseHandler, func(r *http.Request) (*service.TibberClient, error) {
+			// Allow overriding the API key via header for client-specific requests
+			apiKey := r.Header.Get("X-Tibber-API-Key")
+			if apiKey == "" {
+				apiKey = tibberAPIKey
+			}
+			if apiKey == "" {
+				return nil, fmt.Errorf("TIBBER_API_KEY not configured - bitte im Frontend eingeben oder TIBBER_API_KEY Umgebungsvariable setzen")
+			}
+			return service.NewTibberClient(apiKey), nil
+		})
+		tibberHandler.RegisterRoutes(apiRouter)
+
+		// Register Tibber Pulse routes
+		pulseHandler.RegisterRoutes(apiRouter)
+
+		// Register Charging routes
+		chargingHandler := handlers.NewChargingHandler(baseHandler, func(r *http.Request) (*service.TibberClient, error) {
+			apiKey := r.Header.Get("X-Tibber-API-Key")
+			if apiKey == "" {
+				apiKey = tibberAPIKey
+			}
+			if apiKey == "" {
+				return nil, fmt.Errorf("TIBBER_API_KEY not configured")
+			}
+			return service.NewTibberClient(apiKey), nil
+		})
+		chargingHandler.RegisterRoutes(apiRouter)
 	})
 
 	router.Get("/swagger/*", httpSwagger.WrapHandler)
