@@ -26,6 +26,7 @@ func (h *DeviceHandler) RegisterRoutes(router chi.Router) {
 	router.With(SerialNumberValidationMiddleware(validator, "serial_number")).Route("/api/devices/{serial_number}", func(r chi.Router) {
 		r.Get("/parameters", h.GetDeviceParametersAll())
 		r.Post("/parameters/query", h.GetDeviceParametersQuery())
+		r.Get("/soc", h.GetDeviceSOC())
 	})
 }
 
@@ -150,4 +151,125 @@ func (h *DeviceHandler) GetDeviceParametersQuery() func(http.ResponseWriter, *ht
 		}
 		h.RespondWithSuccess(w, ecoflowResponse)
 	}
+}
+
+// GetDeviceSOC handles retrieving the battery state of charge for a specific device
+// @Summary Get battery SOC for a device
+// @Description Returns the current battery state of charge (SOC) for a device
+// @Tags Devices
+// @Produce json
+// @Param serial_number path string true "Device Serial Number"
+// @Success 200 {object} SuccessResponse "SOC retrieved successfully"
+// @Failure 500 {object} ErrorResponse "Error retrieving SOC"
+// @Router /api/devices/{serial_number}/soc [get]
+func (h *DeviceHandler) GetDeviceSOC() func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		client, ok := h.GetEcoflowClientOrRespondWithError(r, w)
+		if !ok {
+			return
+		}
+
+		sn := r.PathValue("serial_number")
+
+		// Try to get specific parameters that include SOC
+		// Common parameter names for battery state: emsParams, sysInfo, pd, etc.
+		paramsToTry := [][]string{
+			{"emsParams", "soc"},
+			{"sysInfo", "soc"},
+			{"pd", "soc"},
+			{"bms", "soc"},
+		}
+
+		var lastErr error
+		for _, params := range paramsToTry {
+			ecoflowResponse, err := client.GetDeviceParameters(context.Background(), sn, params)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+
+			// Parse response to find SOC value
+			jsonBytes, _ := json.Marshal(ecoflowResponse)
+			var data map[string]interface{}
+			json.Unmarshal(jsonBytes, &data)
+
+			// Try to extract SOC from response
+			if soc := extractSOC(data); soc != nil {
+				h.RespondWithSuccess(w, map[string]interface{}{
+					"serialNumber": sn,
+					"soc":          soc,
+				})
+				return
+			}
+		}
+
+		// If specific params failed, try all parameters
+		ecoflowResponse, err := client.GetDeviceAllParameters(context.Background(), sn)
+		if err != nil {
+			h.RespondWithError(w, http.StatusInternalServerError, constants.ErrGetAllDeviceParameters, err.Error(), map[string]string{
+				"serial_number": sn,
+			})
+			return
+		}
+
+		jsonBytes, _ := json.Marshal(ecoflowResponse)
+		var data map[string]interface{}
+		json.Unmarshal(jsonBytes, &data)
+
+		if soc := extractSOC(data); soc != nil {
+			h.RespondWithSuccess(w, map[string]interface{}{
+				"serialNumber": sn,
+				"soc":          soc,
+			})
+			return
+		}
+
+		h.RespondWithError(w, http.StatusNotFound, constants.ErrGetAllDeviceParameters, "SOC not found in device parameters", map[string]string{
+			"serial_number": sn,
+		})
+	}
+}
+
+// extractSOC tries to extract SOC value from various response structures
+func extractSOC(data map[string]interface{}) interface{} {
+	// Try direct soc
+	if v, ok := data["soc"].(float64); ok {
+		return v
+	}
+
+	// Try nested data
+	if dataVal, ok := data["data"].(map[string]interface{}); ok {
+		if v, ok := dataVal["soc"].(float64); ok {
+			return v
+		}
+		// Try emsParams
+		if ems, ok := dataVal["emsParams"].(map[string]interface{}); ok {
+			if v, ok := ems["soc"].(float64); ok {
+				return v
+			}
+		}
+		// Try sysInfo
+		if sys, ok := dataVal["sysInfo"].(map[string]interface{}); ok {
+			if v, ok := sys["soc"].(float64); ok {
+				return v
+			}
+		}
+		// Try pd
+		if pd, ok := dataVal["pd"].(map[string]interface{}); ok {
+			if v, ok := pd["soc"].(float64); ok {
+				return v
+			}
+		}
+	}
+
+	// Try root level data array
+	if dataList, ok := data["data"].([]interface{}); ok && len(dataList) > 0 {
+		if item, ok := dataList[0].(map[string]interface{}); ok {
+			if v, ok := item["soc"].(float64); ok {
+				return v
+			}
+		}
+	}
+
+	return nil
 }
