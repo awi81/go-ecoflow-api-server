@@ -94,6 +94,12 @@ func (b *BaseHandler) RespondWithError(w http.ResponseWriter, statusCode int, co
 		clientMessage = "Missing required header"
 	case constants.ErrInvalidAuthHeader:
 		clientMessage = "Invalid authentication"
+	case "MQTT_ERROR":
+		if details != nil {
+			clientMessage = details.(string) // Show actual MQTT error
+		} else {
+			clientMessage = "MQTT connection failed"
+		}
 	default:
 		clientMessage = "An error occurred"
 	}

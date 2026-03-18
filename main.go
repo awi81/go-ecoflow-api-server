@@ -60,6 +60,9 @@ func main() {
 	deviceHandler := handlers.NewDeviceHandler(baseHandler)
 	powerStationHandler := handlers.NewPowerStationHandler(baseHandler)
 	pulseHandler := handlers.NewPulseHandler(baseHandler)
+	ecoflowMQTTHandler := handlers.NewEcoFlowMQTTHandler(baseHandler, func() *service.EcoFlowMQTTClient {
+		return nil // Will be set when connecting
+	})
 
 	// Configure CORS
 	corsConfig := middleware.DefaultCORSConfig()
@@ -112,6 +115,9 @@ func main() {
 			return service.NewTibberClient(apiKey), nil
 		})
 		chargingHandler.RegisterRoutes(apiRouter)
+
+		// Register EcoFlow MQTT routes
+		ecoflowMQTTHandler.RegisterRoutes(apiRouter)
 	})
 
 	router.Get("/swagger/*", httpSwagger.WrapHandler)
